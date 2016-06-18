@@ -3,15 +3,11 @@
 
 #include <arduino.h>
 #include <EEPROM.h>
-
-//EEPROM Add. for data storage
-#define addStp 28 //address to store number of steps
-#define addCal 32 //address to store number of calories 
-#define addKm  36 //address to store number of km 
+#include "EEPROM_ADDR.h"
 
 //Refer http://www.analog.com/library/analogdialogue/archives/44-06/pedometer.html
 
-struct Pedometer_Data
+class Pedometer_Data
 {
     uint8_t Height;  
     uint8_t Weight;
@@ -22,9 +18,25 @@ struct Pedometer_Data
     float Speed;
     float KM;
     float Calories;
+
+    public:
+    //Constructor
+    Pedometer_Data()
+    {      
+        Height=EEPROM.read(addHeight);
+        Weight=EEPROM.read(addWeight);
+        StepCount=0;
+        StepCount_Prev=0;
+        Steps_per_2s=0;
+        Stride_Length=0;
+        Speed=0;
+        KM=0;
+        Calories=0;  
+    }
     
-    Pedometer_Data();
-    //ISR_Update_StepCount is used for incrementing StepCount
+    //ISR_Update_StepCount is used for incrementing StepCount  
+    void Update_StepCount();
+    void Update_Steps_per_2s();
     void Update_Stride_Length();
     void Update_Speed();
     void Update_Calories();

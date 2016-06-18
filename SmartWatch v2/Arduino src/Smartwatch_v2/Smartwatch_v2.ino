@@ -1,13 +1,15 @@
 #include "bitmap.h"
-#include <ADXL345.h>
 #include <avr/wdt.h>
+#include "ADXL345_Fn.h"
 #include "DS1337.h"
 #include "BLE.h"
 #include "DRV2605.h"
+#include "User_Biodata.h"
 #include "Pedometer.h"
 #include "DS1337.h"
 #include "OLED.h"
 #include "Power_Management.h"
+
 
 //Watch Mode:
 #define NORMAL_MODE 0        
@@ -15,6 +17,10 @@
 volatile uint8_t WATCH_MODE=NORMAL_MODE;
 
 #define SCREEN_REFRESH_INTERVAL 500 //ms
+
+//For ADXL345 Setup
+bool NORMAL_SETUP_FLAG=false;
+bool PEDOMETER_SETUP_FLAG=false;
 
 //Page ptr:
 #define HOME_PAGE             0x0
@@ -27,11 +33,13 @@ volatile uint8_t WATCH_MODE=NORMAL_MODE;
 
 #define ALARM_INTPIN 2                //Alarm Interrupt Pin (INT0)
 #define ACC_INTPIN 3                  //For counting steps/Wake on Tilt(other applications requiring accelerometer)  (INT1) 
+
 #define ON_OFF_INTPIN 8               //To stop Alarm vibration/To Wake up the screen (PCINT0)
 #define Button1_INTPIN 9              //UI Button 1 (PCINT0)
 #define Button2_INTPIN 10             //UI Button 2 (PCINT0)
 
 #define BATTERY_SENSE_PIN A0          //select the input pin for the battery sense point
+
 #define USB_CHARGING_STAT_PIN 4       //USB Connection status
 #define BLE_CONNECTION_STAT_PIN 5     //BLE Connection status
 
@@ -49,83 +57,15 @@ uint8_t count=0;
 //Current page pointer
 volatile uint8_t Page_ptr=HOME_PAGE;
 
-//For ADXL345
-bool NORMAL_SETUP_FLAG=false;
-bool PEDOMETER_SETUP_FLAG=false;
-
-//For Screen Orientation (Wake on Tilt)
-//62.5 mg/LSB
-#define THRESHOLD_1 14   
-//625 us/LSB
-#define DUR_ACT_1 16
-
-//For Step Counting
-#define THRESHOLD_2 5
-#define DUR_ACT_2 3     
-
-//To enter sleep mode(Acc)
-#define THRESHOLD_INACT 4
-//1 sec/LSB
-#define DUR_INACT 5 
-
-//////////////////////////////////////////////////////////WDT/////////////////////////////////////////////////////////////////
-
-void wake ()                            
-{
-    wdt_disable();  // disable watchdog
-} 
+/////////////////////////////////////////////////////////////WDT/////////////////////////////////////////////////////////////////
 
 ISR (WDT_vect) 
 {
-    wake ();
+    wdt_disable();  // disable watchdog
+    
 }  // end of WDT_vect
 
-////////////////////////////////////////////////////////USER-BIODATA///////////////////////////////////////////////////////////
-
-struct USER_BIODATA
-{
-    USER_BIODATA();
-    void Store_BIODATA();
-    void Set_BIODATA(char Name[10],uint8_t Height, uint8_t Age,bool Gender,uint8_t Weight);
-    char Name[10];  
-    uint8_t Height; //in cm
-    uint8_t Age;    //in Yrs
-    bool Gender;    //0 :Male,1: Female
-    uint8_t Weight; //in Kg
-};
-
- USER_BIODATA::USER_BIODATA()
- {
-    Height=EEPROM.read(41);
-    Age=EEPROM.read(42);
-    Gender=EEPROM.read(43);
-    Weight=EEPROM.read(44);
-    for (uint8_t i = 0; i < 10; i++) 
-    {
-        Name[10-i]=EEPROM.read(45+i);
-    }
-}
-
- void USER_BIODATA::Store_BIODATA()
- {
-    EEPROM.write(41,Height);
-    EEPROM.write(42,Age);
-    EEPROM.write(43,Gender);
-    EEPROM.write(44,Weight);
-    for (uint8_t i = 0; i < 10; i++) 
-    {
-        EEPROM.write(45+i,Name[10-i]);
-    }
-}
-
-void USER_BIODATA::Set_BIODATA(char Name[10],uint8_t Height, uint8_t Age,bool Gender,uint8_t Weight)
-{
-    Height=Height;
-    Age=Age;
-    Gender=Gender;
-    Weight=Weight;
-    Name=Name;
-}
+//////////////////////////////////////////////////////////USER-DATA////////////////////////////////////////////////////////////////
 
 USER_BIODATA USER;
 
@@ -185,95 +125,15 @@ Pedometer_Data Data;
  //For Acc
  void ISR_Update_StepCount()
  {
-    Data.StepCount++;
+    Data.Update_StepCount();
  }
-
+ 
  void ISR_Wake_Via_Acc()
  {
     Wake_via_INT=true;
     Page_ptr=HOME_PAGE;
  }
 
-//////////////////////////////////////////////////////////////ADXL345/////////////////////////////////////////////////////////////
-
- void SETUP_ADXL345_NORMAL_MODE()
- {
-      detachInterrupt(1);
-      Acc.setIntSingleTapEnabled(0);
-      
-      //+-4g(0x0-0x3: 2g-16g)
-      Acc.setRange(0x1);
-
-      //DC
-      Acc.setInactivityAC(0);
-      //scaled at 62.5 mg/LSB
-      Acc.setInactivityThreshold(THRESHOLD_INACT);
-      //1sec/LSB
-      Acc.setInactivityTime(DUR_INACT);
-      ///Enable all axes for Activity monitoring
-      Acc.setInactivityXEnabled(1);
-      Acc.setInactivityXEnabled(1);
-      Acc.setInactivityXEnabled(1);
-
-      //scaled at 62.5 mg/LSB
-      Acc.setTapThreshold(THRESHOLD_1);
-      //scaled at 625 us/LSB
-      Acc.setTapDuration(DUR_ACT_1);
-      //Enable Z axis
-      Acc.setTapAxisXEnabled(0);
-      Acc.setTapAxisYEnabled(0);
-      Acc.setTapAxisZEnabled(1);
-
-      //12.5 Hz 0x7-0xA: 12.5 Hz-100Hz
-      Acc.setRate(0x7);
-      
-      Acc.setLowPowerEnabled(1); 
-      //0x0 - 0x3, indicating 8/4/2/1Hz   
-      //1Hz  
-      Acc.setWakeupFrequency(0x3); 
-
-      //INT1
-      Acc.setIntSingleTapPin(8);
-      Acc.setIntSingleTapEnabled(1);
-      
-      attachInterrupt (1,ISR_Wake_Via_Acc,RISING); 
-      PEDOMETER_SETUP_FLAG=false; 
-      NORMAL_SETUP_FLAG=true; 
- }
-
- void SETUP_ADXL345_PEDOMETER_MODE()
- {
-      detachInterrupt(1);
-      Acc.setIntSingleTapEnabled(0);
-      
-      //+-8g(0x0-0x3: 2g-16g)
-      Acc.setRange(0x2);
-      
-      Acc.setInactivityXEnabled(0);
-      Acc.setInactivityXEnabled(0);
-      Acc.setInactivityXEnabled(0);
-
-      //scaled at 62.5 mg/LSB
-      Acc.setTapThreshold(THRESHOLD_2);
-      //scaled at 625 us/LSB
-      Acc.setTapDuration(DUR_ACT_2);
-      Acc.setTapAxisXEnabled(1);
-      Acc.setTapAxisYEnabled(1);
-      Acc.setTapAxisZEnabled(1);
-
-      //12.5 Hz 0x7-0xA: 12.5 Hz-100Hz
-      //50 Hz
-      Acc.setRate(0x9);
-      
-      //INT1
-      Acc.setIntSingleTapPin(8);
-      Acc.setIntSingleTapEnabled(1);
-      
-      attachInterrupt (1,ISR_Update_StepCount,RISING); 
-      NORMAL_SETUP_FLAG=false;   
-      PEDOMETER_SETUP_FLAG=true; 
- 
- }
 
 /////////////////////////////////////////////////////////////////Li-Po Battery///////////////////////////////////////////////////////
  
@@ -322,7 +182,7 @@ void setup()
     Wire.begin();
   
     //Setup DRV2605
-    DRV2605_Setup(&drv);
+    DRV2605_Setup(drv);
     
     //Initialize ADXL345
     Acc.initialize();
@@ -331,10 +191,12 @@ void setup()
     attachInterrupt (0,ISR_ALARM,LOW);
    
     //Loading stored alarms for present day
+    /**
     ds1337_read_time(&time);
     uint8_t temp=time.Day;
     ds1337_set_alarm_1_at_day(temp,EEPROM.read((temp-1)*4) ,EEPROM.read((temp-1)*4+1));
     ds1337_set_alarm_2_at_day(temp,EEPROM.read((temp-1)*4+2) ,EEPROM.read((temp-1)*4+3));
+    **/
   
     //Enable Alarms
     ds1337_clear_status();
@@ -345,12 +207,14 @@ void setup()
     
     //Display Logo
     u8g.firstPage();
-    do {
-      setContrast(0xFF);
-      drawLOGO(&u8g);
-      delay(3000);
-      setContrast(0x02);
+    do 
+    {
+        setContrast(0xFF);
+        drawLOGO(u8g);
+        delay(3000);
+        setContrast(0x02);
     } while ( u8g.nextPage() );
+    
     delay(5000);
 
 }
@@ -382,7 +246,7 @@ void loop()
     
     while(ALRM_ON_OFF==true)
     {
-        vibrate_a(&drv,buf,num);
+        Vibrate_A(drv,buf,num);
         temp++;
         if(temp>20)
         {
@@ -394,9 +258,13 @@ void loop()
   
     if(WATCH_MODE==NORMAL_MODE){
   
-    if(NORMAL_SETUP_FLAG==false){
-        SETUP_ADXL345_NORMAL_MODE();
-      }
+    if(NORMAL_SETUP_FLAG==false)
+        {
+            SETUP_ADXL345_NORMAL_MODE(Acc);
+            attachInterrupt (1,ISR_Wake_Via_Acc,RISING); 
+            PEDOMETER_SETUP_FLAG=false; 
+            NORMAL_SETUP_FLAG=true; 
+        }
   
     //To check if data is recieved from REMOTE
     bool isReceived = false;
@@ -415,49 +283,52 @@ void loop()
       is_Connected=digitalRead(BLE_CONNECTION_STAT_PIN);
   
       //Turn on watch only if screen is properly oriented or USB is connected or Wake button is pressed
-      if(is_Charging or Wake_via_INT){ 
+      if(is_Charging or Wake_via_INT)
+      { 
         
-        if(Wake_via_INT){
-        count++;
-        if(count>count_MAX){
-          Wake_via_INT=false;
-          count=0;
-        }
-        } 
-  
-        if(Page_ptr==HOME_PAGE){
-          
-          Battery_Voltage=Get_Battery_Voltage(A0);
-          Battery_Lvl=Get_Battery_Lvl(Battery_Voltage);
-                
-          uint8_t temp=time.Wday;
-        
-          ds1337_read_time(&time);
-  
-          if(temp!=time.Wday){
-            //Loading stored alarms for present day
-              ds1337_set_alarm_1_at_day(temp,EEPROM.read((temp-1)*4) ,EEPROM.read((temp-1)*4+1));
-              ds1337_set_alarm_2_at_day(temp,EEPROM.read((temp-1)*4+2) ,EEPROM.read((temp-1)*4+3));
+          if(Wake_via_INT)
+          {
+              count++;
+              if(count>count_MAX)
+              {
+                  Wake_via_INT=false;
+                  count=0;
+              }
           } 
+    
+          if(Page_ptr==HOME_PAGE)
+          {
+            
+              Battery_Voltage=Get_Battery_Voltage(A0);
+              Battery_Lvl=Get_Battery_Lvl(Battery_Voltage);
+                    
+              uint8_t temp=time.Wday;
+            
+              ds1337_read_time(&time);
+      
+              if(temp!=time.Wday)
+              {
+                  //Loading stored alarms for present day
+                  ds1337_set_alarm_1_at_day(temp,EEPROM.read((temp-1)*4) ,EEPROM.read((temp-1)*4+1));
+                  ds1337_set_alarm_2_at_day(temp,EEPROM.read((temp-1)*4+2) ,EEPROM.read((temp-1)*4+3));
+              } 
+              
+          }
           
-        }
-  
-        
-        Display(Page_ptr); 
-        
-        delay(SCREEN_REFRESH_INTERVAL);  
-           
+              Display(Page_ptr);        
+              delay(SCREEN_REFRESH_INTERVAL);   
       }
       
-      else{      
-        //Turn off Display
-        Display(BLANK_PAGE);
-        //Sleep for 2s
-        //  1 second:  0b000110
-        //  2 seconds: 0b000111
-        //  4 seconds: 0b100000
-        //  8 seconds: 0b100001
-        Sleep(0b000111);      
+      else
+      {      
+          //Turn off Display
+          Display(BLANK_PAGE);
+          //Sleep for 2s
+          //  1 second:  0b000110
+          //  2 seconds: 0b000111
+          //  4 seconds: 0b100000
+          //  8 seconds: 0b100001
+          Sleep(0b000111);      
       }  
       
     }
@@ -466,27 +337,29 @@ void loop()
   
   
   
-  
-  
-    if(WATCH_MODE==PEDOMETER_MODE){
+    if(WATCH_MODE==PEDOMETER_MODE)
+    {
       
-      if(PEDOMETER_SETUP_FLAG==false){
-        SETUP_ADXL345_PEDOMETER_MODE();
-      }
-      
-      //PedoMeter algorithm
-      Data.Steps_per_2s=Data.StepCount-Data.StepCount_Prev;
-      Data.StepCount_Prev=Data.StepCount;
-      Data.Update_Stride_Length();
-      Data.Update_Speed();
-      Data.Update_Calories();
-      Data.Update_KM(); 
-  
-      //Display data on screen
-      Display(PEDOMETER_PAGE);
-         
-      //Sleep for 2s 
-      Sleep(0b000111); 
+        if(PEDOMETER_SETUP_FLAG==false)
+        {
+            SETUP_ADXL345_PEDOMETER_MODE(Acc);
+            attachInterrupt (1,ISR_Update_StepCount,RISING); 
+            NORMAL_SETUP_FLAG=false;   
+            PEDOMETER_SETUP_FLAG=true; 
+        }
+        
+        //PedoMeter algorithm
+        Data.Update_Steps_per_2s();
+        Data.Update_Stride_Length();
+        Data.Update_Speed();
+        Data.Update_Calories();
+        Data.Update_KM(); 
+    
+        //Display data on screen
+        Display(PEDOMETER_PAGE);
+           
+        //Sleep for 2s 
+        Sleep(0b000111); 
   }
 
 

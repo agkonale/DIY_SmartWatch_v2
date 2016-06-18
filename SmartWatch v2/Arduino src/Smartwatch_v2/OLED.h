@@ -11,6 +11,6 @@
 #define CONTRASTREG 0x81
 
 void setContrast(uint8_t CONTRAST);
-void drawLOGO(U8GLIB_SSD1306_128X64* u8g);
+void drawLOGO(U8GLIB_SSD1306_128X64 &u8g);
 
 #endif

@@ -18,7 +18,7 @@ void setContrast(uint8_t CONTRAST)
 
 
 //For displaying device logo
-void drawLOGO(U8GLIB_SSD1306_128X64* u8g)
+void drawLOGO(U8GLIB_SSD1306_128X64 &u8g)
 {
-    u8g->drawBitmapP( 15, 3, 12, 64, IMG_logo_96x64);
+    u8g.drawBitmapP( 15, 3, 12, 64, IMG_logo_96x64);
 }

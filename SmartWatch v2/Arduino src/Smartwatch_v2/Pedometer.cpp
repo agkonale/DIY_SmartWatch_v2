@@ -1,17 +1,17 @@
 #include "Pedometer.h"
 
-Pedometer_Data::Pedometer_Data()
+
+void Pedometer_Data::Update_StepCount()
 {
-    Height=EEPROM.read(41);
-    Weight=EEPROM.read(44);
-    StepCount=0;
-    StepCount_Prev=0;
-    Steps_per_2s=0;
-    Stride_Length=0;
-    Speed=0;
-    KM=0;
-    Calories=0;
+    StepCount++;
 }
+
+void Pedometer_Data::Update_Steps_per_2s()
+{
+    Steps_per_2s=StepCount-StepCount_Prev;
+    StepCount_Prev=StepCount;
+}
+
 
 void Pedometer_Data::Update_Stride_Length()
 {
